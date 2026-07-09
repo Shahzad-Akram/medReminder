@@ -1,0 +1,80 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /medicines/{medicineId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+        // Allow caretakers to create a shared medicine copy for an on-platform helper.
+        allow create: if request.auth != null
+          && request.resource.data.sharedHelperMedicine == true
+          && request.resource.data.sharedToUid == userId
+          && request.resource.data.addedByUid == request.auth.uid;
+        allow delete: if request.auth != null
+          && resource.data.sharedHelperMedicine == true
+          && resource.data.sharedToUid == userId
+          && resource.data.addedByUid == request.auth.uid;
+      }
+
+      match /reminders/{reminderId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+        // Allow caretakers to create a shared reminder copy for an on-platform helper.
+        allow create: if request.auth != null
+          && request.resource.data.sharedHelperReminder == true
+          && request.resource.data.sharedToUid == userId
+          && request.resource.data.addedByUid == request.auth.uid;
+        allow delete: if request.auth != null
+          && resource.data.sharedHelperReminder == true
+          && resource.data.sharedToUid == userId
+          && resource.data.addedByUid == request.auth.uid;
+      }
+
+      match /patients/{patientId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Owner can read/update their inbox.
+      // Other signed-in users may create a "patient_added" notification for them.
+      match /notifications/{notificationId} {
+        allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null
+          && (
+            (request.resource.data.type == 'patient_added'
+              && request.resource.data.addedByUid == request.auth.uid)
+            || (request.resource.data.type == 'helper_assigned'
+              && request.resource.data.addedByUid == request.auth.uid)
+            || (request.resource.data.type == 'helper_reminder'
+              && request.resource.data.addedByUid == request.auth.uid)
+          );
+      }
+    }
+
+    match /emailLookup/{emailId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email is string;
+      allow delete: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // WhatsApp contact preferences (readable by signed-in users for reminder delivery).
+    match /userContacts/{userId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Queued WhatsApp messages for off-platform helpers (written by caretakers).
+    match /whatsappQueue/{messageId} {
+      allow create: if request.auth != null
+        && (request.resource.data.type == 'helper_reminder'
+          || request.resource.data.type == 'medicine_reminder')
+        && request.resource.data.status == 'pending'
+        && request.resource.data.caretakerUid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+  }
+}

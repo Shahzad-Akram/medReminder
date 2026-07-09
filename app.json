@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mediReminder",
+    "name": "MediReminder",
     "slug": "mediReminder",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -38,7 +38,15 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "color": "#008B8B"
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

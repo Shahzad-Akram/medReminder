@@ -1,0 +1,47 @@
+export const Colors = {
+  primary: '#008B8B',
+  primaryDark: '#006D77',
+  primaryLight: '#E6F2F2',
+  navy: '#1A2B48',
+  navyLight: '#1E293B',
+  background: '#F8FAFC',
+  white: '#FFFFFF',
+  text: '#1A2B48',
+  textSecondary: '#64748B',
+  textMuted: '#94A3B8',
+  border: '#E2E8F0',
+  success: '#27AE60',
+  successLight: '#E8F8EF',
+  error: '#EB5757',
+  errorLight: '#FDEEEE',
+  warning: '#F2994A',
+  warningLight: '#FEF3E8',
+  info: '#2B78D4',
+  infoLight: '#EBF4FF',
+  skipped: '#828282',
+  skippedLight: '#F1F5F9',
+  purple: '#7C3AED',
+  purpleLight: '#F3E8FF',
+  blue: '#2B78D4',
+  blueLight: '#DBEAFE',
+  green: '#4CAF50',
+  whatsapp: '#25D366',
+};
+
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+};
+
+export const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+  full: 999,
+};

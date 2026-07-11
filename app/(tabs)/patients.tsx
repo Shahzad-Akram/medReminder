@@ -190,38 +190,46 @@ export default function PatientsScreen() {
           <Text style={styles.emptyText}>No patients yet. Tap + to add someone you care for.</Text>
         ) : null}
 
-        {filtered.map((patient) => (
+        {filtered.map((patient) => {
+          const hasSchedule =
+            patient.nextReminder !== 'Not scheduled' &&
+            patient.nextReminder !== '—' &&
+            Boolean(patient.nextReminder?.trim());
+
+          return (
           <Pressable
             key={patient.id}
             style={styles.patientCard}
             onPress={() => router.push({ pathname: '/patient/[id]', params: { id: patient.id } })}>
-            <PatientAvatar size={52} />
+            <View style={styles.avatar}>
+              <PatientAvatar size={52} />
+            </View>
             <View style={styles.patientInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.patientName}>{patient.name}</Text>
-                {patient.email ? (
-                  <View style={[styles.platformBadge, patient.onPlatform ? styles.platformOn : styles.platformOff]}>
-                    <Text style={[styles.platformBadgeText, patient.onPlatform ? styles.platformOnText : styles.platformOffText]}>
-                      {patient.onPlatform ? 'On platform' : 'Not on app'}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <View style={styles.relRow}>
+              <Text style={styles.patientName}>{patient.name}</Text>
+              {patient.email ? (
+                <View style={[styles.platformBadge, patient.onPlatform ? styles.platformOn : styles.platformOff]}>
+                  <Text style={[styles.platformBadgeText, patient.onPlatform ? styles.platformOnText : styles.platformOffText]}>
+                    {patient.onPlatform ? 'On platform' : 'Not on app'}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.metaRow}>
                 <Ionicons name="heart" size={12} color={patient.relationshipColor} />
-                <Text style={[styles.relationship, { color: patient.relationshipColor }]}>
+                <Text style={[styles.relationship, { color: patient.relationshipColor }]} numberOfLines={1}>
                   {patient.relationship}
                 </Text>
               </View>
               {patient.email ? (
-                <View style={styles.ageRow}>
+                <View style={styles.metaRow}>
                   <Ionicons name="mail-outline" size={12} color={Colors.textMuted} />
-                  <Text style={styles.age}>{patient.email}</Text>
+                  <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="middle">
+                    {patient.email}
+                  </Text>
                 </View>
               ) : null}
-              <View style={styles.ageRow}>
+              <View style={styles.metaRow}>
                 <Ionicons name="calendar-outline" size={12} color={Colors.textMuted} />
-                <Text style={styles.age}>
+                <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
                   {patient.age} years
                   {patient.gender ? ` · ${patient.gender}` : ''}
                   {patient.bloodGroup ? ` · ${patient.bloodGroup}` : ''}
@@ -229,16 +237,29 @@ export default function PatientsScreen() {
               </View>
             </View>
             <View style={styles.separator} />
-            <View style={styles.nextCol}>
-              <View style={styles.nextRow}>
-                <Ionicons name="time-outline" size={14} color={Colors.primary} />
-                <Text style={styles.nextTime}>Next: {patient.nextReminder}</Text>
-              </View>
-              <Text style={styles.nextDay}>{patient.nextDay}</Text>
+            <View style={[styles.nextCol, hasSchedule ? styles.nextColScheduled : styles.nextColEmpty]}>
+              {hasSchedule ? (
+                <>
+                  <View style={styles.nextRow}>
+                    <Ionicons name="time-outline" size={14} color={Colors.primary} />
+                    <Text style={styles.nextTime} numberOfLines={1}>
+                      Next: {patient.nextReminder}
+                    </Text>
+                  </View>
+                  <Text style={styles.nextDay} numberOfLines={1}>
+                    {patient.nextDay}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.noSchedule} numberOfLines={1}>
+                  No schedule
+                </Text>
+              )}
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} style={styles.chevron} />
           </Pressable>
-        ))}
+          );
+        })}
       </ScrollView>
 
       <Pressable
@@ -414,28 +435,37 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, color: Colors.text },
   emptyText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xl },
   patientCard: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
     backgroundColor: Colors.white, borderRadius: Radius.md, padding: Spacing.lg, marginTop: Spacing.md,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
   },
-  patientInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  patientName: { fontSize: 15, fontWeight: '700', color: Colors.navy },
-  platformBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full },
+  avatar: { marginTop: 2 },
+  patientInfo: { flex: 1, minWidth: 0 },
+  patientName: { fontSize: 15, fontWeight: '700', color: Colors.navy, lineHeight: 20 },
+  platformBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    marginTop: 4,
+  },
   platformOn: { backgroundColor: Colors.successLight },
   platformOff: { backgroundColor: Colors.warningLight },
   platformBadgeText: { fontSize: 10, fontWeight: '700' },
   platformOnText: { color: Colors.success },
   platformOffText: { color: Colors.warning },
-  relRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  relationship: { fontSize: 12, fontWeight: '600' },
-  ageRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  age: { fontSize: 12, color: Colors.textMuted, flexShrink: 1 },
-  separator: { width: 1, height: 50, backgroundColor: Colors.border },
-  nextCol: { alignItems: 'flex-start' },
-  nextRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  nextTime: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, minWidth: 0 },
+  relationship: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
+  metaText: { fontSize: 12, color: Colors.textMuted, flex: 1, minWidth: 0 },
+  separator: { width: 1, alignSelf: 'stretch', backgroundColor: Colors.border, marginHorizontal: 2 },
+  nextCol: { width: 92, alignSelf: 'stretch', minHeight: 52 },
+  nextColScheduled: { justifyContent: 'center' },
+  nextColEmpty: { justifyContent: 'center', alignItems: 'center' },
+  nextRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
+  nextTime: { fontSize: 12, fontWeight: '600', color: Colors.primary, flex: 1, minWidth: 0 },
   nextDay: { fontSize: 11, color: Colors.textMuted, marginTop: 2 },
+  noSchedule: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', textAlign: 'center' },
+  chevron: { alignSelf: 'center' },
   fab: {
     position: 'absolute', bottom: 80, right: Spacing.xl,
     width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.primary,

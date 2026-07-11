@@ -13,13 +13,16 @@ import {
 import { AppHeader } from '@/components/medi/AppHeader';
 import { AppImage } from '@/components/medi/AppLogo';
 import { Colors, Radius, Spacing } from '@/constants/colors';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import { Images } from '@/constants/images';
 import { useAuth } from '@/contexts/auth-context';
 import { getFirebaseErrorMessage } from '@/lib/firebase-errors';
 
 const settingsItems: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; route?: string }[] = [
-  { icon: 'person-outline' as const, title: 'Profile', sub: 'Update your details and WhatsApp preferences', route: '/profile' },
-  { icon: 'chatbubble-outline' as const, title: 'Message Setup', sub: 'Configure SMS and WhatsApp message settings', route: '/message-setup' },
+  { icon: 'person-outline' as const, title: 'Profile', sub: 'Update your account details', route: '/profile' },
+  ...(WHATSAPP_ENABLED
+    ? [{ icon: 'chatbubble-outline' as const, title: 'Message Setup', sub: 'Configure SMS and WhatsApp message settings', route: '/message-setup' }]
+    : []),
 ];
 
 export default function SettingsScreen() {
@@ -46,6 +49,7 @@ export default function SettingsScreen() {
         <Text style={styles.title}>Settings</Text>
         <Text style={styles.subtitle}>Manage your account, preferences, and app settings.</Text>
 
+        {WHATSAPP_ENABLED ? (
         <View style={styles.channelsCard}>
           <Text style={styles.channelsTitle}>WhatsApp</Text>
           <View style={styles.channelRow}>
@@ -66,6 +70,7 @@ export default function SettingsScreen() {
             <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
           </Pressable>
         </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>

@@ -74,6 +74,8 @@ export interface Medicine {
   notifyPush?: boolean;
   notifySms?: boolean;
   notifyWhatsapp?: boolean;
+  /** ISO date when WhatsApp reminders were last queued for this medicine */
+  dailyWhatsappDate?: string;
   daysLeft: number;
 }
 

@@ -15,6 +15,7 @@ import {
 
 import { TealHeader } from '@/components/medi/TealHeader';
 import { Colors, Radius, Spacing } from '@/constants/colors';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import { useAuth } from '@/contexts/auth-context';
 import { getFirebaseErrorMessage } from '@/lib/firebase-errors';
 
@@ -41,7 +42,7 @@ export default function ProfileScreen() {
       return;
     }
 
-    if (onWhatsapp && !whatsapp.trim()) {
+    if (WHATSAPP_ENABLED && onWhatsapp && !whatsapp.trim()) {
       Alert.alert('WhatsApp number required', 'Enter your WhatsApp number or turn off WhatsApp.');
       return;
     }
@@ -50,8 +51,8 @@ export default function ProfileScreen() {
     try {
       await updateMyProfile({
         displayName: displayName.trim() || undefined,
-        whatsapp: whatsapp.trim() || undefined,
-        onWhatsapp,
+        whatsapp: WHATSAPP_ENABLED ? whatsapp.trim() || undefined : undefined,
+        onWhatsapp: WHATSAPP_ENABLED ? onWhatsapp : false,
       });
 
       Alert.alert('Saved', 'Your profile has been updated.', [
@@ -92,36 +93,40 @@ export default function ProfileScreen() {
             <TextInput style={styles.input} value={user?.email ?? ''} editable={false} />
           </View>
 
-          <Text style={styles.label}>WhatsApp number</Text>
-          <View style={styles.inputRow}>
-            <View style={styles.iconBox}>
-              <Ionicons name="logo-whatsapp" size={20} color={Colors.primary} />
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., +91 98765 43210"
-              placeholderTextColor={Colors.textMuted}
-              value={whatsapp}
-              onChangeText={setWhatsapp}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-            />
-          </View>
+          {WHATSAPP_ENABLED ? (
+            <>
+              <Text style={styles.label}>WhatsApp number</Text>
+              <View style={styles.inputRow}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="logo-whatsapp" size={20} color={Colors.primary} />
+                </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., +91 98765 43210"
+                  placeholderTextColor={Colors.textMuted}
+                  value={whatsapp}
+                  onChangeText={setWhatsapp}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                />
+              </View>
 
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleText}>
-              <Text style={styles.toggleTitle}>I use WhatsApp on this number</Text>
-              <Text style={styles.toggleSub}>
-                {onWhatsapp ? 'We will send you WhatsApp reminders.' : 'We will not send WhatsApp reminders to you.'}
-              </Text>
-            </View>
-            <Switch
-              value={onWhatsapp}
-              onValueChange={setOnWhatsapp}
-              trackColor={{ false: Colors.border, true: Colors.primary }}
-              thumbColor={Colors.white}
-            />
-          </View>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleText}>
+                  <Text style={styles.toggleTitle}>I use WhatsApp on this number</Text>
+                  <Text style={styles.toggleSub}>
+                    {onWhatsapp ? 'We will send you WhatsApp reminders.' : 'We will not send WhatsApp reminders to you.'}
+                  </Text>
+                </View>
+                <Switch
+                  value={onWhatsapp}
+                  onValueChange={setOnWhatsapp}
+                  trackColor={{ false: Colors.border, true: Colors.primary }}
+                  thumbColor={Colors.white}
+                />
+              </View>
+            </>
+          ) : null}
         </View>
 
         <Pressable

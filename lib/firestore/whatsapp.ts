@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import type { Patient, PatientHelper } from '@/constants/mock-data';
 import { db } from '@/lib/firebase';
 import { getUserProfile } from '@/lib/firestore/user-profile';
@@ -14,6 +15,10 @@ export const queueWhatsappMessage = async (input: {
   scheduledAtMs: number;
   meta?: Record<string, unknown>;
 }) => {
+  if (!WHATSAPP_ENABLED) {
+    return;
+  }
+
   await addDoc(collection(db, 'whatsappQueue'), {
     type: input.type,
     to: input.to,

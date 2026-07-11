@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
   query,
   serverTimestamp,
@@ -61,15 +62,49 @@ export const subscribeReminders = (
   );
 };
 
+const omitUndefined = <T extends Record<string, unknown>>(data: T) =>
+  Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as {
+    [K in keyof T]: Exclude<T[K], undefined>;
+  };
+
 export const addReminder = async (userId: string, input: ReminderInput) => {
   const ref = collection(db, userRemindersPath(userId));
   const docRef = await addDoc(ref, {
-    ...input,
+    ...omitUndefined(input as Record<string, unknown>),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
   return docRef.id;
+};
+
+export const reminderSlotExists = async (
+  userId: string,
+  params: {
+    scheduledDate: string;
+    time: string;
+    medicineId?: string;
+    originalMedicineId?: string;
+    sharedHelperReminder?: boolean;
+  },
+) => {
+  const ref = collection(db, userRemindersPath(userId));
+  const constraints = [
+    where('scheduledDate', '==', params.scheduledDate),
+    where('time', '==', params.time),
+  ];
+
+  if (params.sharedHelperReminder && params.originalMedicineId) {
+    constraints.push(where('originalMedicineId', '==', params.originalMedicineId));
+    constraints.push(where('sharedHelperReminder', '==', true));
+  } else if (params.medicineId) {
+    constraints.push(where('medicineId', '==', params.medicineId));
+  } else if (params.originalMedicineId) {
+    constraints.push(where('originalMedicineId', '==', params.originalMedicineId));
+  }
+
+  const snap = await getDocs(query(ref, ...constraints, limit(1)));
+  return !snap.empty;
 };
 
 export const updateReminderStatus = async (

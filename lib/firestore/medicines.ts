@@ -53,6 +53,7 @@ const mapMedicineDoc = (id: string, data: Record<string, unknown>): Medicine => 
   notifyPush: data.notifyPush === undefined ? undefined : Boolean(data.notifyPush),
   notifySms: data.notifySms === undefined ? undefined : Boolean(data.notifySms),
   notifyWhatsapp: data.notifyWhatsapp === undefined ? undefined : Boolean(data.notifyWhatsapp),
+  dailyWhatsappDate: data.dailyWhatsappDate ? String(data.dailyWhatsappDate) : undefined,
   daysLeft: Number(data.daysLeft ?? 30),
 });
 

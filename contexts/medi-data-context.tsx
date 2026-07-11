@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import type { Medicine, Patient, PatientHelper } from '@/constants/mock-data';
 import { useAuth } from '@/contexts/auth-context';
+import { syncDailyReminders } from '@/lib/firestore/daily-reminders';
 import {
   addMedicine,
   deleteMedicinesByOriginalId,
@@ -17,6 +19,7 @@ import {
   deleteRemindersByMedicineId,
   deleteRemindersByOriginalMedicineId,
   filterTodayReminders,
+  getTodayIso,
   subscribeReminders,
   type ReminderInput,
   type ReminderRecord,
@@ -125,7 +128,7 @@ const enrichPatients = (patients: Patient[], medicines: Medicine[], todayReminde
   });
 
 export const MediDataProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [reminders, setReminders] = useState<ReminderRecord[]>([]);
@@ -133,6 +136,17 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
   const [error, setError] = useState<string | null>(null);
   const missedMarkedRef = useRef<Set<string>>(new Set());
   const completedMarkedRef = useRef<Set<string>>(new Set());
+  const dailySyncDateRef = useRef<string | null>(null);
+  const dailySyncInFlightRef = useRef(false);
+  const medicinesRef = useRef(medicines);
+  const remindersRef = useRef(reminders);
+  const patientsRef = useRef(patients);
+  const userProfileRef = useRef(userProfile);
+
+  medicinesRef.current = medicines;
+  remindersRef.current = reminders;
+  patientsRef.current = patients;
+  userProfileRef.current = userProfile;
 
   useEffect(() => {
     if (!user) {
@@ -228,6 +242,55 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
     };
   }, [user?.uid]);
 
+  // Create today's reminder records when the date changes (caretaker + on-platform helpers).
+  useEffect(() => {
+    if (!user || loading) {
+      return;
+    }
+
+    const runDailySync = async () => {
+      if (dailySyncInFlightRef.current) {
+        return;
+      }
+
+      dailySyncInFlightRef.current = true;
+      try {
+        await syncDailyReminders({
+          userId: user.uid,
+          medicines: medicinesRef.current,
+          reminders: remindersRef.current,
+          patients: patientsRef.current,
+          caretakerProfile: userProfileRef.current,
+        });
+        dailySyncDateRef.current = getTodayIso();
+      } catch {
+        // Retry on the next interval or when the app returns to foreground.
+      } finally {
+        dailySyncInFlightRef.current = false;
+      }
+    };
+
+    void runDailySync();
+
+    const interval = setInterval(() => {
+      const currentIso = getTodayIso();
+      if (dailySyncDateRef.current !== currentIso) {
+        void runDailySync();
+      }
+    }, 60 * 1000);
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void runDailySync();
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [user, loading]);
+
   // Auto-complete medicines when end date has passed, so daily notifications stop.
   useEffect(() => {
     if (!user) {
@@ -268,9 +331,12 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
     const interval = setInterval(() => {
       const now = Date.now();
       const thresholdMs = 60 * 60 * 1000;
+      const todayIso = getTodayIso();
 
-      const candidates = reminders.filter((r) =>
-        r.status === 'upcoming' || r.status === 'late' || r.status === 'snoozed'
+      const candidates = reminders.filter(
+        (r) =>
+          r.scheduledDate === todayIso &&
+          (r.status === 'upcoming' || r.status === 'late' || r.status === 'snoozed'),
       );
 
       for (const reminder of candidates) {

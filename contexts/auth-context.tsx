@@ -10,6 +10,7 @@ import {
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { auth } from '@/lib/firebase';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import { upsertEmailLookup } from '@/lib/firestore/email-lookup';
 import { subscribeUserProfile, type UserProfile, upsertUserProfile } from '@/lib/firestore/user-profile';
 
@@ -88,8 +89,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         await upsertUserProfile(credential.user.uid, {
           email: credential.user.email ?? email.trim(),
           displayName: trimmedName,
-          whatsapp: options?.whatsapp?.trim() || undefined,
-          onWhatsapp: Boolean(options?.onWhatsapp),
+          whatsapp: options?.whatsapp?.trim() ?? '',
+          onWhatsapp: WHATSAPP_ENABLED ? Boolean(options?.onWhatsapp) : false,
         });
       },
       updateMyProfile: async (options) => {
@@ -106,7 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           email: user.email ?? undefined,
           displayName: trimmedName ?? user.displayName ?? undefined,
           whatsapp: options.whatsapp?.trim() || undefined,
-          onWhatsapp: Boolean(options.onWhatsapp),
+          onWhatsapp: WHATSAPP_ENABLED ? Boolean(options.onWhatsapp) : false,
         });
       },
       signOut: () => firebaseSignOut(auth),

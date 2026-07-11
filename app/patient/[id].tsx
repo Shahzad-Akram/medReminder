@@ -19,6 +19,7 @@ import { AppImage } from '@/components/medi/AppLogo';
 import { PatientAvatar } from '@/components/medi/PatientAvatar';
 import { TealHeader } from '@/components/medi/TealHeader';
 import { Colors, Radius, Spacing } from '@/constants/colors';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import { Images } from '@/constants/images';
 import { useAuth } from '@/contexts/auth-context';
 import { useMediData } from '@/contexts/medi-data-context';
@@ -128,9 +129,19 @@ export default function PatientDetailScreen() {
       return;
     }
 
-    if (emailStatus === 'off' && !helperWhatsapp.trim()) {
-      Alert.alert('WhatsApp required', 'This person is not on the app. Add their WhatsApp number for reminders.');
-      return;
+    if (emailStatus === 'off') {
+      if (!WHATSAPP_ENABLED) {
+        Alert.alert(
+          'Helper must be on MediReminder',
+          'WhatsApp reminders are not available yet. The helper needs a MediReminder account to receive reminders.',
+        );
+        return;
+      }
+
+      if (!helperWhatsapp.trim()) {
+        Alert.alert('WhatsApp required', 'This person is not on the app. Add their WhatsApp number for reminders.');
+        return;
+      }
     }
 
     setSavingHelper(true);
@@ -285,10 +296,10 @@ export default function PatientDetailScreen() {
                 <View style={styles.helperBadges}>
                   <View style={[styles.platformBadge, helper.onPlatform ? styles.platformOn : styles.platformOff]}>
                     <Text style={[styles.platformBadgeText, helper.onPlatform ? styles.platformOnText : styles.platformOffText]}>
-                      {helper.onPlatform ? 'App reminders' : 'WhatsApp reminders'}
+                      {helper.onPlatform ? 'App reminders' : WHATSAPP_ENABLED ? 'WhatsApp reminders' : 'Not on app'}
                     </Text>
                   </View>
-                  {!helper.onPlatform && helper.whatsapp ? (
+                  {WHATSAPP_ENABLED && !helper.onPlatform && helper.whatsapp ? (
                     <Text style={styles.whatsappText}>WA: {helper.whatsapp}</Text>
                   ) : null}
                 </View>
@@ -447,14 +458,18 @@ export default function PatientDetailScreen() {
             {emailStatus === 'off' ? (
               <View style={styles.emailStatusRow}>
                 <Ionicons name="information-circle" size={16} color={Colors.warning} />
-                <Text style={styles.emailOff}>Not on app — WhatsApp number required</Text>
+                <Text style={styles.emailOff}>
+                  {WHATSAPP_ENABLED
+                    ? 'Not on app — WhatsApp number required'
+                    : 'Not on app — helper must join MediReminder to receive reminders'}
+                </Text>
               </View>
             ) : null}
             {emailStatus === 'invalid' ? (
               <Text style={styles.emailInvalid}>Enter a valid email address</Text>
             ) : null}
 
-            {emailStatus === 'off' || helperWhatsapp ? (
+            {WHATSAPP_ENABLED && (emailStatus === 'off' || helperWhatsapp) ? (
               <>
                 <Text style={styles.fieldLabel}>
                   WhatsApp number {emailStatus === 'off' ? '*' : '(optional)'}

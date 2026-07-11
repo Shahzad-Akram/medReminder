@@ -27,6 +27,7 @@ import { AppLogo } from '@/components/medi/AppLogo';
 import { SecurityFooter } from '@/components/medi/SecurityFooter';
 
 import { Colors, Radius, Spacing } from '@/constants/colors';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 
 import { Images } from '@/constants/images';
 
@@ -57,11 +58,13 @@ export default function RegisterScreen() {
   const handleCreateAccount = async () => {
 
     if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
-
       Alert.alert('Missing information', 'Please fill in all fields.');
-
       return;
+    }
 
+    if (WHATSAPP_ENABLED && !whatsapp.trim()) {
+      Alert.alert('Missing information', 'Please enter your WhatsApp number.');
+      return;
     }
 
 
@@ -81,18 +84,13 @@ export default function RegisterScreen() {
       return;
     }
 
-    if (onWhatsapp && !whatsapp.trim()) {
-      Alert.alert('WhatsApp number required', 'Enter your WhatsApp number or turn off WhatsApp reminders.');
-      return;
-    }
-
     setSubmitting(true);
 
     try {
-      await signUp(email, password, fullName, {
-        whatsapp: whatsapp.trim() || undefined,
+      await signUp(email, password, fullName, WHATSAPP_ENABLED ? {
+        whatsapp: whatsapp.trim(),
         onWhatsapp,
-      });
+      } : undefined);
 
       router.push('/reminder-setup');
 
@@ -288,37 +286,41 @@ export default function RegisterScreen() {
 
         </View>
 
-        <View style={styles.inputRow}>
-          <View style={styles.iconBox}>
-            <Ionicons name="logo-whatsapp" size={20} color={Colors.primary} />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="WhatsApp number (optional)"
-            placeholderTextColor={Colors.textMuted}
-            value={whatsapp}
-            onChangeText={setWhatsapp}
-            keyboardType="phone-pad"
-            autoComplete="tel"
-          />
-        </View>
+        {WHATSAPP_ENABLED ? (
+          <>
+            <View style={styles.inputRow}>
+              <View style={styles.iconBox}>
+                <Ionicons name="logo-whatsapp" size={20} color={Colors.primary} />
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="WhatsApp number"
+                placeholderTextColor={Colors.textMuted}
+                value={whatsapp}
+                onChangeText={setWhatsapp}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+              />
+            </View>
 
-        <View style={styles.whatsappRow}>
-          <View style={styles.whatsappTextCol}>
-            <Text style={styles.whatsappLabel}>I use WhatsApp on this number</Text>
-            <Text style={styles.whatsappHint}>
-              {onWhatsapp
-                ? 'You will receive medicine reminders on WhatsApp.'
-                : 'WhatsApp reminders will not be sent to you.'}
-            </Text>
-          </View>
-          <Switch
-            value={onWhatsapp}
-            onValueChange={setOnWhatsapp}
-            trackColor={{ false: Colors.border, true: Colors.primary }}
-            thumbColor={Colors.white}
-          />
-        </View>
+            <View style={styles.whatsappRow}>
+              <View style={styles.whatsappTextCol}>
+                <Text style={styles.whatsappLabel}>I use WhatsApp on this number</Text>
+                <Text style={styles.whatsappHint}>
+                  {onWhatsapp
+                    ? 'You will receive medicine reminders on WhatsApp.'
+                    : 'WhatsApp reminders will not be sent to you.'}
+                </Text>
+              </View>
+              <Switch
+                value={onWhatsapp}
+                onValueChange={setOnWhatsapp}
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.white}
+              />
+            </View>
+          </>
+        ) : null}
 
         <Pressable style={styles.checkboxRow} onPress={() => setAgreed(!agreed)}>
 

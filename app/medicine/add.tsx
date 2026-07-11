@@ -19,11 +19,12 @@ import { FormInput } from '@/components/medi/FormInput';
 import { AppImage } from '@/components/medi/AppLogo';
 import { TealHeader } from '@/components/medi/TealHeader';
 import { Colors, Radius, Spacing } from '@/constants/colors';
+import { WHATSAPP_ENABLED } from '@/constants/features';
 import { Images } from '@/constants/images';
 import { useAuth } from '@/contexts/auth-context';
 import { useMediData } from '@/contexts/medi-data-context';
 import { getFirebaseErrorMessage } from '@/lib/firebase-errors';
-import { timeOfDayFromClock } from '@/lib/firestore/medicines';
+import { timeOfDayFromClock, updateMedicine } from '@/lib/firestore/medicines';
 import { getTodayIso } from '@/lib/firestore/reminders';
 import { queueWhatsappMessage, collectWhatsappRecipients, scheduledAtMsForToday } from '@/lib/firestore/whatsapp';
 import { ensureNotificationPermissions } from '@/lib/notifications';
@@ -207,7 +208,7 @@ export default function AddMedicineScreen() {
       return;
     }
 
-    if (!notifyPush && !notifySms && !notifyWhatsapp) {
+    if (!notifyPush && !notifySms && (WHATSAPP_ENABLED ? !notifyWhatsapp : true)) {
       Alert.alert('Reminder method', 'Turn on at least one reminder channel (Push, SMS, or WhatsApp).');
       return;
     }
@@ -248,7 +249,7 @@ export default function AddMedicineScreen() {
         frequency: frequencyLabel,
         notifyPush,
         notifySms,
-        notifyWhatsapp,
+        notifyWhatsapp: WHATSAPP_ENABLED ? notifyWhatsapp : false,
       });
 
       // Share medicine to on-platform helpers so THEIR device can schedule daily notifications too.
@@ -274,7 +275,7 @@ export default function AddMedicineScreen() {
         frequency: frequencyLabel,
         notifyPush,
         notifySms,
-        notifyWhatsapp,
+        notifyWhatsapp: WHATSAPP_ENABLED ? notifyWhatsapp : false,
       });
 
       const displayDate = formatCalendarDate(new Date());
@@ -311,7 +312,7 @@ export default function AddMedicineScreen() {
       );
 
       // Queue WhatsApp messages for patient/caretaker/helpers at the due time.
-      if (user && notifyWhatsapp) {
+      if (WHATSAPP_ENABLED && user && notifyWhatsapp) {
         const recipients = await collectWhatsappRecipients({
           patient: selectedPatient,
           caretakerProfile: userProfile,
@@ -338,6 +339,7 @@ export default function AddMedicineScreen() {
                   medicineId,
                   medicine: medicineLabel,
                   time,
+                  scheduledDate: getTodayIso(),
                 },
               }).catch(() => {
                 // ignore per-recipient failures
@@ -345,6 +347,10 @@ export default function AddMedicineScreen() {
             );
           }),
         );
+
+        await updateMedicine(user.uid, medicineId, { dailyWhatsappDate: getTodayIso() }).catch(() => {
+          // Best-effort marker so daily sync does not duplicate messages.
+        });
       }
 
       Alert.alert(
@@ -626,7 +632,7 @@ export default function AddMedicineScreen() {
               thumbColor={Colors.white}
             />
           </View>
-          <View style={styles.notifyRow}>
+          <View style={[styles.notifyRow, !WHATSAPP_ENABLED && styles.notifyRowLast]}>
             <View style={styles.notifyLeft}>
               <Ionicons name="chatbubble-ellipses" size={20} color={Colors.primary} />
               <Text style={styles.notifyLabel}>SMS</Text>
@@ -638,6 +644,7 @@ export default function AddMedicineScreen() {
               thumbColor={Colors.white}
             />
           </View>
+          {WHATSAPP_ENABLED ? (
           <View style={[styles.notifyRow, styles.notifyRowLast]}>
             <View style={styles.notifyLeft}>
               <AppImage source={Images.icons.whatsapp} size={22} />
@@ -650,6 +657,7 @@ export default function AddMedicineScreen() {
               thumbColor={Colors.white}
             />
           </View>
+          ) : null}
         </View>
 
         <View style={styles.row}>

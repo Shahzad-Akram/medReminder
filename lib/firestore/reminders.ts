@@ -43,6 +43,10 @@ const mapReminderDoc = (id: string, data: Record<string, unknown>): ReminderReco
   patientId: data.patientId ? String(data.patientId) : undefined,
   medicineId: data.medicineId ? String(data.medicineId) : undefined,
   originalMedicineId: data.originalMedicineId ? String(data.originalMedicineId) : undefined,
+  sharedHelperReminder:
+    data.sharedHelperReminder === undefined ? undefined : Boolean(data.sharedHelperReminder),
+  sharedToUid: data.sharedToUid ? String(data.sharedToUid) : undefined,
+  addedByUid: data.addedByUid ? String(data.addedByUid) : undefined,
 });
 
 export const subscribeReminders = (
@@ -130,10 +134,39 @@ export const deleteRemindersByMedicineId = async (userId: string, medicineId: st
   await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 };
 
-export const deleteRemindersByOriginalMedicineId = async (userId: string, originalMedicineId: string) => {
+export const deleteRemindersByPatientId = async (userId: string, patientId: string) => {
+  const q = query(collection(db, userRemindersPath(userId)), where('patientId', '==', patientId));
+  const snap = await getDocs(q);
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+};
+
+export const deleteRemindersByOriginalMedicineId = async (
+  userId: string,
+  originalMedicineId: string,
+  caretakerUid: string,
+) => {
   const q = query(
     collection(db, userRemindersPath(userId)),
     where('originalMedicineId', '==', originalMedicineId),
+    where('sharedHelperReminder', '==', true),
+    where('sharedToUid', '==', userId),
+    where('addedByUid', '==', caretakerUid),
+  );
+  const snap = await getDocs(q);
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+};
+
+export const deleteSharedRemindersByPatientId = async (
+  userId: string,
+  patientId: string,
+  caretakerUid: string,
+) => {
+  const q = query(
+    collection(db, userRemindersPath(userId)),
+    where('patientId', '==', patientId),
+    where('sharedHelperReminder', '==', true),
+    where('sharedToUid', '==', userId),
+    where('addedByUid', '==', caretakerUid),
   );
   const snap = await getDocs(q);
   await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));

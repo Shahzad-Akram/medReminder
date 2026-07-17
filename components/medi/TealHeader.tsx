@@ -26,8 +26,8 @@ export const TealHeader = ({
   const showCenteredLogo = showLogo && !title;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + Spacing.md }]}>
-      <View style={styles.row}>
+    <View style={[styles.container, { paddingTop: insets.top + Spacing.md }, !showLogo && styles.containerCompact]}>
+      <View style={[styles.row, !showLogo && styles.rowCompact]}>
         {showBack ? (
           <Pressable onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={Colors.white} />
@@ -68,11 +68,17 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.lg,
     paddingHorizontal: Spacing.lg,
   },
+  containerCompact: {
+    paddingBottom: Spacing.sm,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: LogoSizes.teal.height + 16,
+  },
+  rowCompact: {
+    minHeight: 44,
   },
   iconBtn: {
     width: 40,

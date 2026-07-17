@@ -24,7 +24,7 @@ import { Images } from '@/constants/images';
 import { useAuth } from '@/contexts/auth-context';
 import { useMediData } from '@/contexts/medi-data-context';
 import { getFirebaseErrorMessage } from '@/lib/firebase-errors';
-import { timeOfDayFromClock, updateMedicine } from '@/lib/firestore/medicines';
+import { timeOfDayFromClock, updateMedicine, type MedicineInput } from '@/lib/firestore/medicines';
 import { getTodayIso } from '@/lib/firestore/reminders';
 import { queueWhatsappMessage, collectWhatsappRecipients, scheduledAtMsForToday } from '@/lib/firestore/whatsapp';
 import { ensureNotificationPermissions } from '@/lib/notifications';
@@ -92,10 +92,111 @@ const iconForTime = (time: string) => {
   return 'moon';
 };
 
+const parseCalendarDateValue = (value: string) => {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'ongoing') return null;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const parseDoseTimeValue = (time: string) => {
+  const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const date = new Date();
+  if (!match) {
+    date.setHours(8, 0, 0, 0);
+    return date;
+  }
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const period = match[3].toUpperCase();
+  if (period === 'PM' && hour < 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+  date.setHours(hour, minute, 0, 0);
+  return date;
+};
+
+const inferFrequencyKey = (times: string[], label?: string): FrequencyKey => {
+  const normalized = label?.toLowerCase() ?? '';
+  if (normalized.includes('twice')) return 'twice';
+  if (normalized.includes('3 times') || normalized.includes('thrice')) return 'thrice';
+  if (times.length === 1) return 'once';
+  if (times.length === 2) return 'twice';
+  if (times.length === 3) return 'thrice';
+  return 'custom';
+};
+
+const medicineTypeValue = (value: string): (typeof MEDICINE_TYPES)[number] =>
+  MEDICINE_TYPES.includes(value as (typeof MEDICINE_TYPES)[number])
+    ? (value as (typeof MEDICINE_TYPES)[number])
+    : 'Tablet';
+
+const buildMedicinePayload = (params: {
+  name: string;
+  type: (typeof MEDICINE_TYPES)[number];
+  dosage: string;
+  strength: string;
+  instructions: string;
+  notes: string;
+  startDate: string;
+  endDate: string;
+  firstTime: string;
+  selectedPatient: { id: string; name: string };
+  scheduleTimes: string[];
+  calculatedDaysLeft: number;
+  frequencyLabel: string;
+  notifyPush: boolean;
+  notifySms: boolean;
+  notifyWhatsapp: boolean;
+}): MedicineInput => {
+  const medicineLabel = `${params.name.trim()} ${params.strength.trim()}`;
+
+  return {
+    name: params.name.trim(),
+    type: params.type || 'Tablet',
+    dosage: params.dosage.trim(),
+    strength: params.strength.trim(),
+    instructions: params.instructions.trim() || 'As directed',
+    category: 'General',
+    description: params.notes.trim() || medicineLabel,
+    startDate: params.startDate,
+    endDate: params.endDate || 'Ongoing',
+    doctorNote: params.notes.trim(),
+    status: 'active',
+    nextReminder: `Today, ${params.firstTime}`,
+    nextDay: 'Today',
+    timeOfDay: timeOfDayFromClock(params.firstTime),
+    patientName: params.selectedPatient.name,
+    patientId: params.selectedPatient.id,
+    scheduleTimes: params.scheduleTimes,
+    daysLeft: params.calculatedDaysLeft,
+    frequency: params.frequencyLabel,
+    notifyPush: params.notifyPush,
+    notifySms: params.notifySms,
+    notifyWhatsapp: WHATSAPP_ENABLED ? params.notifyWhatsapp : false,
+  };
+};
+
 export default function AddMedicineScreen() {
-  const { patientId: patientIdParam } = useLocalSearchParams<{ patientId?: string }>();
+  const { patientId: patientIdParam, medicineId: medicineIdParam } = useLocalSearchParams<{
+    patientId?: string;
+    medicineId?: string;
+  }>();
   const { user, userProfile } = useAuth();
-  const { patients, addMedicine, addReminder, notifyPatientHelpersForReminder, shareMedicineToHelpers } = useMediData();
+  const {
+    patients,
+    loading: patientsLoading,
+    addPatient,
+    addMedicine,
+    addReminder,
+    notifyPatientHelpersForReminder,
+    shareMedicineToHelpers,
+    getMedicineById,
+  } = useMediData();
+
+  const editingMedicine = medicineIdParam ? getMedicineById(medicineIdParam) : undefined;
+  const isEditing = Boolean(editingMedicine);
 
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [name, setName] = useState('');
@@ -114,6 +215,8 @@ export default function AddMedicineScreen() {
   const [endDateValue, setEndDateValue] = useState<Date | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editFormLoaded, setEditFormLoaded] = useState(false);
+  const [creatingSelfPatient, setCreatingSelfPatient] = useState(false);
 
   const scheduleTimes = useMemo(() => doseDates.map(formatDoseTime), [doseDates]);
   const startDate = useMemo(() => formatCalendarDate(startDateValue), [startDateValue]);
@@ -122,14 +225,83 @@ export default function AddMedicineScreen() {
   useEffect(() => {
     if (patientIdParam && patients.some((p) => p.id === patientIdParam)) {
       setSelectedPatientId(patientIdParam);
+    }
+  }, [patientIdParam, patients]);
+
+
+  useEffect(() => {
+    if (!editingMedicine) {
+      setEditFormLoaded(false);
       return;
     }
-  }, [patientIdParam, patients, selectedPatientId]);
+
+    if (editFormLoaded) return;
+
+    const times =
+      editingMedicine.scheduleTimes && editingMedicine.scheduleTimes.length > 0
+        ? editingMedicine.scheduleTimes
+        : [editingMedicine.nextReminder.replace(/^Today,\s*/i, '').trim() || '8:00 AM'];
+
+    setSelectedPatientId(editingMedicine.patientId ?? '');
+    setName(editingMedicine.name);
+    setType(medicineTypeValue(editingMedicine.type));
+    setDosage(editingMedicine.dosage);
+    setStrength(editingMedicine.strength);
+    setInstructions(editingMedicine.instructions);
+    setFrequency(inferFrequencyKey(times, editingMedicine.frequency));
+    setDoseDates(times.map(parseDoseTimeValue));
+    setNotifyPush(editingMedicine.notifyPush !== false);
+    setNotifySms(Boolean(editingMedicine.notifySms));
+    setNotifyWhatsapp(Boolean(editingMedicine.notifyWhatsapp));
+    setStartDateValue(parseCalendarDateValue(editingMedicine.startDate) ?? new Date());
+    setEndDateValue(parseCalendarDateValue(editingMedicine.endDate));
+    setNotes(editingMedicine.doctorNote || editingMedicine.description || '');
+    setEditFormLoaded(true);
+  }, [editingMedicine, editFormLoaded]);
 
   const selectedPatient = useMemo(
     () => patients.find((p) => p.id === selectedPatientId),
     [patients, selectedPatientId],
   );
+  const selfPatient = useMemo(
+    () =>
+      patients.find(
+        (patient) =>
+          patient.relationship.trim().toLowerCase() === 'self' ||
+          (user?.uid != null && patient.linkedUserId === user.uid),
+      ),
+    [patients, user?.uid],
+  );
+
+  const handleSelectSelf = async () => {
+    if (isEditing || creatingSelfPatient) return;
+
+    if (selfPatient) {
+      setSelectedPatientId(selfPatient.id);
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('Not signed in', 'Please sign in before adding a medicine.');
+      return;
+    }
+
+    setCreatingSelfPatient(true);
+    try {
+      const fallbackName = user.email?.split('@')[0] || 'Myself';
+      const result = await addPatient({
+        name: user.displayName?.trim() || fallbackName,
+        email: user.email ?? undefined,
+        relationship: 'Self',
+        age: 0,
+      });
+      setSelectedPatientId(result.id);
+    } catch (error) {
+      Alert.alert('Could not select yourself', getFirebaseErrorMessage(error));
+    } finally {
+      setCreatingSelfPatient(false);
+    }
+  };
 
   const handleFrequencyChange = (key: FrequencyKey) => {
     setFrequency(key);
@@ -227,56 +399,43 @@ export default function AddMedicineScreen() {
       const calculatedDaysLeft =
         endDateValue != null ? Math.max(0, daysBetween(new Date(), endDateValue) + 1) : 30;
 
-      const medicineId = await addMedicine({
-        name: name.trim(),
-        type: type || 'Tablet',
-        dosage: dosage.trim(),
-        strength: strength.trim(),
-        instructions: instructions.trim() || 'As directed',
-        category: 'General',
-        description: notes.trim() || medicineLabel,
+      const payload = buildMedicinePayload({
+        name,
+        type,
+        dosage,
+        strength,
+        instructions,
+        notes,
         startDate,
-        endDate: endDate || 'Ongoing',
-        doctorNote: notes.trim(),
-        status: 'active',
-        nextReminder: `Today, ${firstTime}`,
-        nextDay: 'Today',
-        timeOfDay: timeOfDayFromClock(firstTime),
-        patientName: selectedPatient.name,
-        patientId: selectedPatient.id,
+        endDate,
+        firstTime,
+        selectedPatient,
         scheduleTimes,
-        daysLeft: calculatedDaysLeft,
-        frequency: frequencyLabel,
+        calculatedDaysLeft,
+        frequencyLabel,
         notifyPush,
         notifySms,
-        notifyWhatsapp: WHATSAPP_ENABLED ? notifyWhatsapp : false,
+        notifyWhatsapp,
       });
 
+      if (isEditing && user && editingMedicine) {
+        if (editingMedicine.sharedHelperMedicine) {
+          Alert.alert('Cannot edit', 'This medicine was shared with you by a caretaker.');
+          return;
+        }
+
+        await updateMedicine(user.uid, editingMedicine.id, payload);
+
+        Alert.alert('Medicine updated', 'Your changes have been saved.', [
+          { text: 'OK', onPress: () => router.replace(`/medicine/${editingMedicine.id}`) },
+        ]);
+        return;
+      }
+
+      const medicineId = await addMedicine(payload);
+
       // Share medicine to on-platform helpers so THEIR device can schedule daily notifications too.
-      await shareMedicineToHelpers(selectedPatient.id, medicineId, {
-        name: name.trim(),
-        type: type || 'Tablet',
-        dosage: dosage.trim(),
-        strength: strength.trim(),
-        instructions: instructions.trim() || 'As directed',
-        category: 'General',
-        description: notes.trim() || medicineLabel,
-        startDate,
-        endDate: endDate || 'Ongoing',
-        doctorNote: notes.trim(),
-        status: 'active',
-        nextReminder: `Today, ${firstTime}`,
-        nextDay: 'Today',
-        timeOfDay: timeOfDayFromClock(firstTime),
-        patientName: selectedPatient.name,
-        patientId: selectedPatient.id,
-        scheduleTimes,
-        daysLeft: calculatedDaysLeft,
-        frequency: frequencyLabel,
-        notifyPush,
-        notifySms,
-        notifyWhatsapp: WHATSAPP_ENABLED ? notifyWhatsapp : false,
-      });
+      await shareMedicineToHelpers(selectedPatient.id, medicineId, payload);
 
       const displayDate = formatCalendarDate(new Date());
       const reminderInstructions = `${dosage.trim()} • ${instructions.trim() || 'As directed'}`;
@@ -373,18 +532,34 @@ export default function AddMedicineScreen() {
         ? endDateValue ?? startDateValue
         : null;
 
+  if (medicineIdParam && !editingMedicine) {
+    return (
+      <View style={styles.container}>
+        <TealHeader title="" />
+        <View style={styles.missing}>
+          <Text style={styles.missingText}>Medicine not found.</Text>
+          <Pressable style={styles.missingBtn} onPress={() => router.back()}>
+            <Text style={styles.missingBtnText}>Go back</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <TealHeader title="" showLogo rightIcon="help-circle-outline" />
+      <TealHeader title="" rightIcon="help-circle-outline" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.titleRow}>
           <View style={styles.titleIcon}>
             <AppImage source={Images.illustrations.pills} size={56} />
           </View>
           <View>
-            <Text style={styles.title}>Add Medicine</Text>
+            <Text style={styles.title}>{isEditing ? 'Edit Medicine' : 'Add Medicine'}</Text>
             <Text style={styles.subtitle}>
-              Enter medicine details and set reminder times for this patient.
+              {isEditing
+                ? 'Update medicine details and reminder schedule for this patient.'
+                : 'Enter medicine details and set reminder times for this patient.'}
             </Text>
           </View>
         </View>
@@ -392,29 +567,71 @@ export default function AddMedicineScreen() {
         <Text style={styles.sectionLabel}>
           Patient <Text style={styles.required}>*</Text>
         </Text>
-        {patients.length === 0 ? (
-          <Pressable style={styles.emptyPatient} onPress={() => router.push('/(tabs)/patients')}>
-            <Ionicons name="person-add" size={18} color={Colors.primary} />
-            <Text style={styles.emptyPatientText}>Add a patient first</Text>
+        <View style={styles.patientRow}>
+          <Pressable
+            style={[
+              styles.patientChip,
+              selfPatient?.id === selectedPatientId && styles.patientChipActive,
+              isEditing && styles.patientChipDisabled,
+            ]}
+            onPress={handleSelectSelf}
+            disabled={isEditing || creatingSelfPatient}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: selfPatient?.id === selectedPatientId }}
+            accessibilityLabel="Select myself as patient">
+            <Ionicons
+              name="person"
+              size={14}
+              color={selfPatient?.id === selectedPatientId ? Colors.primary : Colors.textSecondary}
+            />
+            <Text
+              style={[
+                styles.patientChipText,
+                selfPatient?.id === selectedPatientId && styles.patientChipTextActive,
+              ]}>
+              {creatingSelfPatient ? 'Adding…' : 'Myself'}
+            </Text>
           </Pressable>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.patientRow}>
-            {patients.map((patient) => {
+          {patients
+            .filter((patient) => patient.id !== selfPatient?.id)
+            .map((patient) => {
               const active = patient.id === selectedPatientId;
               return (
                 <Pressable
                   key={patient.id}
-                  style={[styles.patientChip, active && styles.patientChipActive]}
-                  onPress={() => setSelectedPatientId(patient.id)}>
+                  style={[styles.patientChip, active && styles.patientChipActive, isEditing && styles.patientChipDisabled]}
+                  onPress={() => {
+                    if (!isEditing) setSelectedPatientId(patient.id);
+                  }}
+                  disabled={isEditing}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Select patient ${patient.name}`}>
                   <Text style={[styles.patientChipText, active && styles.patientChipTextActive]}>
                     {patient.name}
                   </Text>
                 </Pressable>
               );
             })}
-          </ScrollView>
-        )}
-        {!selectedPatientId && patients.length > 0 ? (
+          {!isEditing ? (
+            <Pressable
+              style={styles.patientChip}
+              onPress={() => router.push('/(tabs)/patients')}
+              accessibilityRole="button"
+              accessibilityLabel="Add another patient">
+              <Ionicons name="person-add" size={14} color={Colors.primary} />
+              <Text style={styles.patientChipTextActive}>Add patient</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {patientsLoading ? (
+          <Text style={styles.patientStatusHint}>Loading your patients…</Text>
+        ) : patients.length === 0 ? (
+          <Text style={styles.patientStatusHint}>
+            No patients found for this account yet. Choose Myself or tap “Add patient”.
+          </Text>
+        ) : null}
+        {!selectedPatientId ? (
           <Text style={styles.selectPatientHint}>Select a patient to continue.</Text>
         ) : null}
 
@@ -732,7 +949,9 @@ export default function AddMedicineScreen() {
           ) : (
             <>
               <Ionicons name="alarm-outline" size={20} color={Colors.white} />
-              <Text style={styles.saveBtnText}>Save Medicine & Reminder</Text>
+              <Text style={styles.saveBtnText}>
+                {isEditing ? 'Save Changes' : 'Save Medicine & Reminder'}
+              </Text>
             </>
           )}
         </Pressable>
@@ -774,18 +993,32 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   emptyPatientText: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
-  patientRow: { marginBottom: Spacing.lg },
+  patientRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
   selectPatientHint: { fontSize: 12, color: Colors.warning, marginTop: -Spacing.md, marginBottom: Spacing.lg, fontWeight: '600' },
+  patientStatusHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: -Spacing.md,
+    marginBottom: Spacing.lg,
+  },
   patientChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: Radius.full,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    marginRight: Spacing.sm,
     backgroundColor: Colors.white,
   },
   patientChipActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primary },
+  patientChipDisabled: { opacity: 0.7 },
   patientChipText: { fontSize: 13, color: Colors.textSecondary },
   patientChipTextActive: { color: Colors.primary, fontWeight: '700' },
   typeGrid: {
@@ -972,4 +1205,13 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.7 },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: Colors.white },
+  missing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
+  missingText: { fontSize: 16, color: Colors.textMuted, marginBottom: Spacing.lg },
+  missingBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+  },
+  missingBtnText: { color: Colors.white, fontWeight: '700' },
 });

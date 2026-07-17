@@ -38,6 +38,7 @@ export default function PatientDetailScreen() {
     todayReminders,
     assignPatientHelper,
     removePatientHelper,
+    deletePatientCascade,
   } = useMediData();
   const patient = getPatientById(id ?? '');
 
@@ -47,6 +48,7 @@ export default function PatientDetailScreen() {
   const [helperWhatsapp, setHelperWhatsapp] = useState('');
   const [emailStatus, setEmailStatus] = useState<EmailStatus>('empty');
   const [savingHelper, setSavingHelper] = useState(false);
+  const [deletingPatient, setDeletingPatient] = useState(false);
   const emailCheckToken = useRef(0);
 
   const medicines = useMemo(
@@ -197,7 +199,47 @@ export default function PatientDetailScreen() {
     ]);
   };
 
+  const handleDeletePatient = () => {
+    if (!patient || deletingPatient) return;
+
+    Alert.alert(
+      'Delete patient?',
+      `This permanently deletes ${patient.name}, all of their medicines and reminders, and every reminder shared with their helpers.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setDeletingPatient(true);
+              try {
+                await deletePatientCascade(patient.id);
+                router.replace('/(tabs)/patients');
+              } catch (error) {
+                setDeletingPatient(false);
+                Alert.alert('Could not delete patient', getFirebaseErrorMessage(error));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   if (!patient) {
+    if (deletingPatient) {
+      return (
+        <View style={styles.container}>
+          <TealHeader title="Patient Details" />
+          <View style={styles.missing}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.deletingText}>Deleting patient records…</Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.container}>
         <TealHeader title="Patient Details" />
@@ -409,6 +451,23 @@ export default function PatientDetailScreen() {
           <Ionicons name="time-outline" size={20} color={Colors.primary} />
           <Text style={styles.secondaryBtnText}>View Reminder History</Text>
         </Pressable>
+
+        <Pressable
+          style={[styles.deletePatientBtn, deletingPatient && styles.deletePatientBtnDisabled]}
+          onPress={handleDeletePatient}
+          disabled={deletingPatient}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete patient ${patient.name}`}
+          accessibilityState={{ disabled: deletingPatient }}>
+          {deletingPatient ? (
+            <ActivityIndicator color={Colors.error} />
+          ) : (
+            <Ionicons name="trash-outline" size={20} color={Colors.error} />
+          )}
+          <Text style={styles.deletePatientBtnText}>
+            {deletingPatient ? 'Deleting Patient…' : 'Delete Patient'}
+          </Text>
+        </Pressable>
       </ScrollView>
 
       <Modal visible={helperModalVisible} animationType="slide" transparent onRequestClose={() => setHelperModalVisible(false)}>
@@ -519,6 +578,7 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.lg, paddingBottom: Spacing.xxxl },
   missing: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
   missingText: { fontSize: 16, color: Colors.textMuted, marginBottom: Spacing.md },
+  deletingText: { fontSize: 14, color: Colors.textMuted, marginTop: Spacing.md },
   backLink: { padding: Spacing.md },
   backLinkText: { color: Colors.primary, fontWeight: '700' },
   overview: {
@@ -690,6 +750,20 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   secondaryBtnText: { fontSize: 15, fontWeight: '700', color: Colors.primary },
+  deletePatientBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.lg,
+    marginTop: Spacing.md,
+    backgroundColor: Colors.errorLight,
+  },
+  deletePatientBtnDisabled: { opacity: 0.7 },
+  deletePatientBtnText: { fontSize: 15, fontWeight: '700', color: Colors.error },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',

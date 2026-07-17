@@ -104,13 +104,40 @@ export const deleteMedicine = async (userId: string, medicineId: string) => {
   await deleteDoc(doc(db, userMedicinesPath(userId), medicineId));
 };
 
-export const deleteMedicinesByOriginalId = async (userId: string, originalMedicineId: string) => {
+export const deleteMedicinesByOriginalId = async (
+  userId: string,
+  originalMedicineId: string,
+  caretakerUid: string,
+) => {
   const q = query(
     collection(db, userMedicinesPath(userId)),
     where('originalMedicineId', '==', originalMedicineId),
+    where('sharedHelperMedicine', '==', true),
+    where('sharedToUid', '==', userId),
+    where('addedByUid', '==', caretakerUid),
   );
   const snap = await getDocs(q);
+  const medicineIds = snap.docs.map((d) => d.id);
   await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  return medicineIds;
+};
+
+export const deleteSharedMedicinesByPatientId = async (
+  userId: string,
+  patientId: string,
+  caretakerUid: string,
+) => {
+  const q = query(
+    collection(db, userMedicinesPath(userId)),
+    where('patientId', '==', patientId),
+    where('sharedHelperMedicine', '==', true),
+    where('sharedToUid', '==', userId),
+    where('addedByUid', '==', caretakerUid),
+  );
+  const snap = await getDocs(q);
+  const medicineIds = snap.docs.map((d) => d.id);
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  return medicineIds;
 };
 
 export const timeOfDayFromClock = (time: string): Medicine['timeOfDay'] => {

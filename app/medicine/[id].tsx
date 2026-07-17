@@ -45,7 +45,7 @@ const daysDiff = (from: Date, to: Date) => {
 export default function MedicineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getMedicineById, deleteMedicineCascade } = useMediData();
-  const medicine = getMedicineById(id ?? '') ?? getMedicineById('1');
+  const medicine = getMedicineById(id ?? '');
   const [deleting, setDeleting] = useState(false);
 
   if (!medicine) {
@@ -232,7 +232,13 @@ export default function MedicineDetailScreen() {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable style={styles.editBtn}>
+          <Pressable
+            style={styles.editBtn}
+            onPress={() =>
+              router.push({ pathname: '/medicine/add', params: { medicineId: medicine.id } })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Edit medicine">
             <Ionicons name="create-outline" size={20} color={Colors.white} />
             <Text style={styles.editBtnText}>Edit Medicine</Text>
           </Pressable>

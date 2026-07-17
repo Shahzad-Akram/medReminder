@@ -3,21 +3,37 @@ import { AppState } from 'react-native';
 
 import type { Medicine, Patient, PatientHelper } from '@/constants/mock-data';
 import { useAuth } from '@/contexts/auth-context';
-import { syncDailyReminders } from '@/lib/firestore/daily-reminders';
+import {
+  getMedicineScheduleTimes,
+  isMedicineScheduledOnDay,
+  syncDailyReminders,
+} from '@/lib/firestore/daily-reminders';
 import {
   addMedicine,
   deleteMedicinesByOriginalId,
   deleteMedicine,
+  deleteSharedMedicinesByPatientId,
   type MedicineInput,
   subscribeMedicines,
+  timeOfDayFromClock,
   updateMedicine,
 } from '@/lib/firestore/medicines';
-import { addPatient, assignPatientHelper, removePatientHelper, type AssignHelperInput, type PatientInput, subscribePatients } from '@/lib/firestore/patients';
+import {
+  addPatient,
+  assignPatientHelper,
+  deletePatient,
+  removePatientHelper,
+  type AssignHelperInput,
+  type PatientInput,
+  subscribePatients,
+} from '@/lib/firestore/patients';
 import { notifyPatientHelpersForReminder, type HelperReminderParams } from '@/lib/firestore/inbox';
 import {
   addReminder,
   deleteRemindersByMedicineId,
   deleteRemindersByOriginalMedicineId,
+  deleteRemindersByPatientId,
+  deleteSharedRemindersByPatientId,
   filterTodayReminders,
   getTodayIso,
   subscribeReminders,
@@ -44,6 +60,7 @@ interface MediDataContextValue {
   ) => Promise<void>;
   shareMedicineToHelpers: (patientId: string, medicineId: string, input: MedicineInput) => Promise<void>;
   deleteMedicineCascade: (medicineId: string) => Promise<void>;
+  deletePatientCascade: (patientId: string) => Promise<void>;
   addMedicine: (input: MedicineInput) => Promise<string>;
   addReminder: (input: ReminderInput) => Promise<string>;
   ensureReminderForNotification: (params: {
@@ -96,6 +113,72 @@ const isPastDay = (date: Date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d.getTime() < today.getTime();
+};
+
+const parseClockMinutes = (time: string): number | null => {
+  const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const period = match[3].toUpperCase();
+  if (period === 'PM' && hour < 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+
+  return hour * 60 + minute;
+};
+
+const DOSE_DONE_STATUSES = new Set<ReminderRecord['status']>(['taken', 'skipped', 'missed']);
+
+/** Point each medicine's "Next" label at the first dose not yet handled today, or tomorrow's first dose. */
+const withNextDose = (medicines: Medicine[], reminders: ReminderRecord[]): Medicine[] => {
+  const todayIso = getTodayIso();
+
+  return medicines.map((medicine) => {
+    if (medicine.status !== 'active') return medicine;
+
+    const times = getMedicineScheduleTimes(medicine)
+      .filter((time) => parseClockMinutes(time) != null)
+      .sort((a, b) => parseClockMinutes(a)! - parseClockMinutes(b)!);
+    if (times.length === 0) return medicine;
+
+    const doseDone = (time: string) =>
+      reminders.some(
+        (reminder) =>
+          reminder.scheduledDate === todayIso &&
+          reminder.time === time &&
+          DOSE_DONE_STATUSES.has(reminder.status) &&
+          (reminder.medicineId === medicine.id ||
+            (medicine.originalMedicineId != null &&
+              reminder.originalMedicineId === medicine.originalMedicineId)),
+      );
+
+    const pendingToday = isMedicineScheduledOnDay(medicine, new Date())
+      ? times.find((time) => !doseDone(time))
+      : undefined;
+
+    if (pendingToday) {
+      return {
+        ...medicine,
+        nextReminder: `Today, ${pendingToday}`,
+        nextDay: 'Today',
+        timeOfDay: timeOfDayFromClock(pendingToday),
+      };
+    }
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (isMedicineScheduledOnDay(medicine, tomorrow)) {
+      return {
+        ...medicine,
+        nextReminder: `Tomorrow, ${times[0]}`,
+        nextDay: 'Tomorrow',
+        timeOfDay: timeOfDayFromClock(times[0]),
+      };
+    }
+
+    return { ...medicine, nextReminder: 'All doses done', nextDay: '—' };
+  });
 };
 
 const enrichPatients = (patients: Patient[], medicines: Medicine[], todayReminders: ReminderRecord[]): Patient[] =>
@@ -375,15 +458,17 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
     });
   }, [reminders]);
 
+  const medicinesWithNextDose = useMemo(() => withNextDose(medicines, reminders), [medicines, reminders]);
+
   const patientsWithStats = useMemo(
-    () => enrichPatients(patients, medicines, todayReminders),
-    [patients, medicines, todayReminders],
+    () => enrichPatients(patients, medicinesWithNextDose, todayReminders),
+    [patients, medicinesWithNextDose, todayReminders],
   );
 
   const value = useMemo<MediDataContextValue>(
     () => ({
       patients: patientsWithStats,
-      medicines,
+      medicines: medicinesWithNextDose,
       reminders,
       todayReminders,
       loading,
@@ -521,13 +606,65 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
         await Promise.all(
           helperUids.map(async (helperUid) => {
             try {
-              await deleteMedicinesByOriginalId(helperUid, medicineId);
+              await deleteRemindersByOriginalMedicineId(helperUid, medicineId, user.uid);
             } catch {}
             try {
-              await deleteRemindersByOriginalMedicineId(helperUid, medicineId);
+              await deleteMedicinesByOriginalId(helperUid, medicineId, user.uid);
             } catch {}
           }),
         );
+      },
+      deletePatientCascade: async (patientId) => {
+        if (!user) {
+          throw new Error('You must be signed in to delete a patient.');
+        }
+
+        const patient = patientsWithStats.find((item) => item.id === patientId);
+        if (!patient) {
+          return;
+        }
+
+        const patientMedicines = medicines.filter(
+          (medicine) =>
+            medicine.patientId === patientId ||
+            (!medicine.patientId && medicine.patientName === patient.name),
+        );
+        const helperUids = [
+          ...new Set(
+            (patient.helpers ?? [])
+              .filter((helper) => helper.onPlatform && helper.linkedUserId)
+              .map((helper) => helper.linkedUserId!),
+          ),
+        ];
+
+        // Remove helper copies first. If this fails, keep the owner data so the
+        // operation can be retried without leaving active shared reminders behind.
+        await Promise.all(
+          helperUids.map(async (helperUid) => {
+            await Promise.all(
+              patientMedicines.map((medicine) =>
+                deleteRemindersByOriginalMedicineId(helperUid, medicine.id, user.uid),
+              ),
+            );
+            await deleteSharedRemindersByPatientId(helperUid, patientId, user.uid);
+            await Promise.all(
+              patientMedicines.map((medicine) =>
+                deleteMedicinesByOriginalId(helperUid, medicine.id, user.uid),
+              ),
+            );
+            await deleteSharedMedicinesByPatientId(helperUid, patientId, user.uid);
+          }),
+        );
+
+        // Remove all owner reminders and medicines before deleting the patient.
+        await Promise.all(
+          patientMedicines.map(async (medicine) => {
+            await deleteRemindersByMedicineId(user.uid, medicine.id);
+            await deleteMedicine(user.uid, medicine.id);
+          }),
+        );
+        await deleteRemindersByPatientId(user.uid, patientId);
+        await deletePatient(user.uid, patientId);
       },
       addMedicine: async (input) => {
         if (!user) {
@@ -600,12 +737,12 @@ export const MediDataProvider = ({ children }: { children: React.ReactNode }) =>
         await updateReminderStatus(user.uid, reminderId, status, extra);
       },
       getReminderById: (id) => reminders.find((reminder) => reminder.id === id),
-      getMedicineById: (id) => medicines.find((medicine) => medicine.id === id),
+      getMedicineById: (id) => medicinesWithNextDose.find((medicine) => medicine.id === id),
       getPatientById: (id) => patientsWithStats.find((patient) => patient.id === id),
       getMedicinesForPatient: (patientId) =>
-        medicines.filter((medicine) => medicine.patientId === patientId),
+        medicinesWithNextDose.filter((medicine) => medicine.patientId === patientId),
     }),
-    [patientsWithStats, medicines, reminders, todayReminders, loading, error, user],
+    [patientsWithStats, medicines, medicinesWithNextDose, reminders, todayReminders, loading, error, user],
   );
 
   return <MediDataContext.Provider value={value}>{children}</MediDataContext.Provider>;

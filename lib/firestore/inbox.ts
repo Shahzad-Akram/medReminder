@@ -1,4 +1,4 @@
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
 
@@ -18,6 +18,7 @@ export type InboxNotification = {
   unread?: boolean;
   type?: string;
   createdAtMs?: number;
+  reminderId?: string;
 };
 
 export const userNotificationsPath = (userId: string) => `users/${userId}/notifications` as const;
@@ -234,4 +235,11 @@ export const subscribeInboxNotifications = (
     },
     (error) => onError?.(error),
   );
+};
+
+export const markNotificationRead = async (userId: string, notificationId: string) => {
+  await updateDoc(doc(db, userNotificationsPath(userId), notificationId), {
+    unread: false,
+    updatedAt: serverTimestamp(),
+  });
 };

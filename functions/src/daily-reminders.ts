@@ -18,6 +18,8 @@ type MedicineDoc = {
   dailyWhatsappDate?: string;
   sharedHelperMedicine?: boolean;
   originalMedicineId?: string;
+  addedByUid?: string;
+  sharedToUid?: string;
 };
 
 type PatientDoc = {
@@ -208,6 +210,11 @@ export const runDailyReminderGeneration = async () => {
         });
         if (exists) continue;
 
+        if (!medicine.addedByUid) {
+          // Shared copies should always retain the caretaker uid for cascade cleanup.
+          continue;
+        }
+
         await db.collection(`users/${userId}/reminders`).add({
           time,
           date: displayDate,
@@ -220,6 +227,10 @@ export const runDailyReminderGeneration = async () => {
           instructions: reminderInstructions(medicine),
           status: 'upcoming',
           icon: 'sunny',
+          // Keep share metadata so caretakers can cascade-delete helper reminders.
+          sharedHelperReminder: true,
+          sharedToUid: userId,
+          addedByUid: medicine.addedByUid,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });

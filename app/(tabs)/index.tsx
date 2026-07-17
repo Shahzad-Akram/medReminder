@@ -137,10 +137,13 @@ export default function HomeScreen() {
           {[
             { icon: 'add-circle' as const, title: 'Add Reminder', sub: 'New medication', color: Colors.primary, route: '/medicine/add' },
             { icon: 'people' as const, title: 'Add Patient', sub: 'New patient', color: Colors.info, route: '/(tabs)/patients' },
-            { icon: 'scan' as const, title: 'Scan Medicine', sub: 'Scan & add', color: Colors.primary, route: '/medicine/add' },
-            { icon: 'document-text' as const, title: 'View Reports', sub: 'Adherence & more', color: Colors.info, route: '/(tabs)/reports' },
           ].map((action) => (
-            <Pressable key={action.title} style={styles.actionCard} onPress={() => router.push(action.route as never)}>
+            <Pressable
+              key={action.title}
+              style={styles.actionCard}
+              onPress={() => router.push(action.route as never)}
+              accessibilityRole="button"
+              accessibilityLabel={action.title}>
               <View style={[styles.actionIcon, { backgroundColor: action.color }]}>
                 <Ionicons name={action.icon} size={22} color={Colors.white} />
               </View>
@@ -209,9 +212,9 @@ const styles = StyleSheet.create({
   patientDue: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
   patientAdherence: { fontSize: 11, color: Colors.primary, marginTop: 2 },
   patientChevron: { position: 'absolute', right: 8, top: 8 },
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, marginTop: Spacing.md },
+  actionsGrid: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.md },
   actionCard: {
-    width: '47%', backgroundColor: Colors.white, borderRadius: Radius.md, padding: Spacing.md,
+    flex: 1, backgroundColor: Colors.white, borderRadius: Radius.md, padding: Spacing.md,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2,
   },
   actionIcon: {

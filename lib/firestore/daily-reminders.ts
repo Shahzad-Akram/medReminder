@@ -2,7 +2,14 @@ import type { Medicine, Patient } from '@/constants/mock-data';
 import { WHATSAPP_ENABLED } from '@/constants/features';
 
 import { timeOfDayFromClock, updateMedicine } from '@/lib/firestore/medicines';
-import { addReminder, getTodayIso, reminderSlotExists, type ReminderInput, type ReminderRecord } from '@/lib/firestore/reminders';
+import {
+  addReminder,
+  deleteReminder,
+  getTodayIso,
+  reminderSlotExists,
+  type ReminderInput,
+  type ReminderRecord,
+} from '@/lib/firestore/reminders';
 import {
   collectWhatsappRecipients,
   queueWhatsappMessage,
@@ -116,6 +123,55 @@ const buildOwnerReminderInput = (
   icon: iconForScheduleTime(time),
 });
 
+/** Reminders created from a shared helper medicine copy must carry share metadata for cascade delete. */
+const buildHelperMedicineReminderInput = (
+  medicine: Medicine,
+  time: string,
+  scheduledDate: string,
+  displayDate: string,
+  helperUid: string,
+): ReminderInput => ({
+  ...buildOwnerReminderInput(medicine, time, scheduledDate, displayDate),
+  sharedHelperReminder: true,
+  sharedToUid: helperUid,
+  addedByUid: medicine.addedByUid,
+  originalMedicineId: medicine.originalMedicineId ?? medicine.id,
+});
+
+const purgeOrphanHelperReminders = async (
+  userId: string,
+  medicines: Medicine[],
+  reminders: ReminderRecord[],
+) => {
+  const medicineIds = new Set(medicines.map((medicine) => medicine.id));
+  const sharedOriginalIds = new Set(
+    medicines
+      .filter((medicine) => medicine.sharedHelperMedicine && medicine.originalMedicineId)
+      .map((medicine) => medicine.originalMedicineId!),
+  );
+
+  await Promise.all(
+    reminders.map(async (reminder) => {
+      const missingMedicine = Boolean(reminder.medicineId && !medicineIds.has(reminder.medicineId));
+      const orphanShared =
+        reminder.sharedHelperReminder === true &&
+        Boolean(reminder.originalMedicineId) &&
+        !sharedOriginalIds.has(reminder.originalMedicineId!) &&
+        !(reminder.medicineId && medicineIds.has(reminder.medicineId));
+
+      if (!missingMedicine && !orphanShared) {
+        return;
+      }
+
+      try {
+        await deleteReminder(userId, reminder.id);
+      } catch {
+        // Best-effort cleanup of leftover helper reminders.
+      }
+    }),
+  );
+};
+
 const buildHelperSharedReminderInput = (
   medicine: Medicine,
   patient: Patient,
@@ -159,6 +215,9 @@ export const syncDailyReminders = async ({
   const scheduledDate = getTodayIso();
   const displayDate = formatDisplayDate();
   const today = new Date();
+
+  // Remove leftover helper reminders after a caretaker deletes shared medicines/patients.
+  await purgeOrphanHelperReminders(userId, medicines, reminders);
 
   const activeToday = medicines.filter(
     (medicine) => !medicine.sharedHelperMedicine && isMedicineScheduledOnDay(medicine, today),
@@ -302,7 +361,14 @@ export const syncDailyReminders = async ({
         continue;
       }
 
-      await addReminder(userId, buildOwnerReminderInput(medicine, time, scheduledDate, displayDate));
+      if (!medicine.addedByUid) {
+        continue;
+      }
+
+      await addReminder(
+        userId,
+        buildHelperMedicineReminderInput(medicine, time, scheduledDate, displayDate, userId),
+      );
     }
   }
 };

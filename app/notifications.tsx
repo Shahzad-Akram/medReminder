@@ -14,16 +14,20 @@ import { SegmentedControl } from '@/components/medi/SegmentedControl';
 import { AppImage } from '@/components/medi/AppLogo';
 import { Colors, Radius, Spacing } from '@/constants/colors';
 import { Images } from '@/constants/images';
-import { notifications as mockNotifications } from '@/constants/mock-data';
 import { useAuth } from '@/contexts/auth-context';
+import { useMediData } from '@/contexts/medi-data-context';
 import {
   type InboxNotification,
+  markNotificationRead,
   subscribeInboxNotifications,
 } from '@/lib/firestore/inbox';
+import { buildNotificationsFeed, type FeedNotification } from '@/lib/notifications-feed';
+import { ensureNotificationPermissions } from '@/lib/notifications';
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { todayReminders } = useMediData();
   const [filter, setFilter] = useState(0);
   const [inbox, setInbox] = useState<InboxNotification[]>([]);
 
@@ -36,40 +40,59 @@ export default function NotificationsScreen() {
     return subscribeInboxNotifications(user.uid, setInbox);
   }, [user?.uid]);
 
-  const combined = useMemo(() => {
-    const mappedInbox: InboxNotification[] = inbox.map((item) => ({
-      ...item,
-      section: item.section ?? 'Today',
-    }));
-
-    const mappedMock: InboxNotification[] = mockNotifications.map((item) => ({
-      ...item,
-      type: undefined,
-    }));
-
-    return [...mappedInbox, ...mappedMock];
-  }, [inbox]);
+  const feed = useMemo(
+    () => buildNotificationsFeed(inbox, todayReminders),
+    [inbox, todayReminders],
+  );
 
   const filtered = useMemo(() => {
-    if (filter === 1) return combined.filter((n) => n.unread);
+    if (filter === 1) return feed.filter((n) => n.unread);
     if (filter === 2) {
-      return combined.filter(
+      return feed.filter(
         (n) =>
           n.status === 'Missed' ||
           n.status === 'Due Now' ||
+          n.status === 'Upcoming' ||
           n.type === 'patient_added' ||
-          n.title.toLowerCase().includes('alert'),
+          n.type === 'helper_assigned',
       );
     }
-    return combined;
-  }, [combined, filter]);
+    return feed;
+  }, [feed, filter]);
 
-  const unreadCount = combined.filter((n) => n.unread).length;
-  const alertCount = combined.filter(
-    (n) => n.status === 'Missed' || n.status === 'Due Now' || n.type === 'patient_added',
+  const unreadCount = feed.filter((n) => n.unread).length;
+  const alertCount = feed.filter(
+    (n) =>
+      n.status === 'Missed' ||
+      n.status === 'Due Now' ||
+      n.status === 'Upcoming' ||
+      n.type === 'patient_added' ||
+      n.type === 'helper_assigned',
   ).length;
 
   const sections = ['Today', 'Yesterday', 'Earlier'] as const;
+
+  const handleNotificationPress = (notif: FeedNotification) => {
+    if (notif.reminderId) {
+      router.push({ pathname: '/active-reminder', params: { reminderId: notif.reminderId } });
+      return;
+    }
+
+    if (notif.type === 'patient_added' || notif.type === 'helper_assigned') {
+      if (user && notif.unread) {
+        void markNotificationRead(user.uid, notif.id);
+      }
+      return;
+    }
+
+    if (notif.status === 'Missed') {
+      router.push('/missed-dose');
+    }
+  };
+
+  const handleEnablePush = async () => {
+    await ensureNotificationPermissions();
+  };
 
   return (
     <View style={styles.container}>
@@ -78,15 +101,13 @@ export default function NotificationsScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Notifications</Text>
-        <Pressable style={styles.backBtn}>
-          <Ionicons name="settings-outline" size={24} color={Colors.primary} />
-        </Pressable>
+        <View style={styles.backBtn} />
       </View>
 
       <View style={styles.filterWrap}>
         <SegmentedControl
           options={[
-            { label: 'All', count: combined.length },
+            { label: 'All', count: feed.length },
             { label: 'Unread', count: unreadCount },
             { label: 'Alerts', count: alertCount },
           ]}
@@ -96,6 +117,16 @@ export default function NotificationsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {filtered.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="notifications-off-outline" size={40} color={Colors.textMuted} />
+            <Text style={styles.emptyTitle}>No notifications yet</Text>
+            <Text style={styles.emptySub}>
+              Medicine reminders and account alerts will appear here.
+            </Text>
+          </View>
+        ) : null}
+
         {sections.map((section) => {
           const items = filtered.filter((n) => n.section === section);
           if (items.length === 0) return null;
@@ -106,9 +137,9 @@ export default function NotificationsScreen() {
                 <Pressable
                   key={notif.id}
                   style={styles.notifCard}
-                  onPress={() => notif.title.includes('Missed') && router.push('/missed-dose')}>
+                  onPress={() => handleNotificationPress(notif)}>
                   <View style={styles.notifLeft}>
-                    {notif.unread && <View style={styles.unreadDot} />}
+                    {notif.unread ? <View style={styles.unreadDot} /> : null}
                     <View style={[styles.notifIcon, { backgroundColor: notif.iconBg }]}>
                       <Ionicons name={notif.icon as keyof typeof Ionicons.glyphMap} size={22} color={notif.iconColor} />
                     </View>
@@ -138,7 +169,7 @@ export default function NotificationsScreen() {
             <Text style={styles.enableTitle}>Enable Push Notifications</Text>
             <Text style={styles.enableSub}>Stay updated with medicine reminders and alerts</Text>
           </View>
-          <Pressable style={styles.enableBtn}>
+          <Pressable style={styles.enableBtn} onPress={handleEnablePush}>
             <Text style={styles.enableBtnText}>Enable</Text>
           </Pressable>
         </View>
@@ -157,6 +188,9 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: Colors.primary },
   filterWrap: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, backgroundColor: Colors.white },
   content: { padding: Spacing.lg, paddingBottom: Spacing.xxxl },
+  emptyState: { alignItems: 'center', paddingVertical: Spacing.xxxl, gap: Spacing.sm },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.navy },
+  emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 20 },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.navy, marginBottom: Spacing.md, marginTop: Spacing.md },
   notifCard: {
     flexDirection: 'row', gap: Spacing.md, backgroundColor: Colors.white,

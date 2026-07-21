@@ -21,8 +21,7 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.digitalukapps.mediReminder"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static"
